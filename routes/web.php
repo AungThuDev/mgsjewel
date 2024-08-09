@@ -18,10 +18,11 @@ Route::get('/', function () {
 });
 
 
-Route::resource('/products',App\Http\Controllers\ProductController::class);
+Route::resource('/products', App\Http\Controllers\ProductController::class);
 
 
 
 Auth::routes();
 
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
+Route::get('/product-photos/{id}', [App\Http\Controllers\ProductController::class, 'exportImage'])->name('image');

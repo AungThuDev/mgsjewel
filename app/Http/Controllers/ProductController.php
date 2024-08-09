@@ -6,6 +6,9 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Yajra\DataTables\DataTables;
 use Illuminate\Support\Facades\Storage;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use Illuminate\Support\Facades\View;
+use Spatie\Browsershot\Browsershot;
 
 class ProductController extends Controller
 {
@@ -16,21 +19,25 @@ class ProductController extends Controller
      */
     public function index(Request $request)
     {
-        if($request->ajax()){
+        if ($request->ajax()) {
             $product = Product::query();
             return DataTables::of($product)
-            ->editColumn('image',function($each){
-                    return '<img src="'.asset("storage/products/" . $each->image).'" class="img-thumbnail" width="100" height="100"/>';
-            })        
-            ->addColumn('action',function($each){
-                $edit_icon = '<a href="'.route('products.edit',$each->id).'" class="btn btn-outline-warning" style="margin-right:10px;"><i class="fas fa-user-edit"></i>&nbsp;Edit</a>';
-                $detail_icon = '<a href="'.route('products.show',$each->id).'" class="btn btn-outline-info" style="margin-right:10px;"><i class="fas fa-info-circle"></i>&nbsp;Detail</a>';
-                $delete_icon = '<a href="" class="btn btn-outline-danger delete" data-id = "'.$each->id.'"><i class="fas fa-trash-alt"></i>&nbsp;Delete</a>';
+                ->editColumn('image', function ($each) {
+                    return '<img src="' . asset("storage/products/" . $each->image) . '" class="img-thumbnail" width="100" height="100"/>';
+                })
+                ->addColumn('action', function ($each) {
+                    $edit_icon = '<a href="' . route('products.edit', $each->id) . '" class="btn btn-outline-warning" style="margin-right:10px;"><i class="fas fa-user-edit"></i>&nbsp;Edit</a>';
+                    $detail_icon = '<a href="' . route('products.show', $each->id) . '" class="btn btn-outline-info" style="margin-right:10px;"><i class="fas fa-info-circle"></i>&nbsp;Detail</a>';
+                    $export_qr = '<a href="' . route('image', $each->id) . '" class="btn btn-outline-success" style="margin-right:10px;"><i class="fas fa-info-circle"></i>&nbsp;ExportQr</a>';
+                    $delete_icon = '<a href="" class="btn btn-outline-danger delete" data-id = "' . $each->id . '"><i class="fas fa-trash-alt"></i>&nbsp;Delete</a>';
 
-                return '<div class="action-icon">' . $edit_icon  . $detail_icon . $delete_icon . '</div>';
-            })
-            ->rawColumns(['image','action','qrcode'])
-            ->make(true);
+                    return '<div class="action-icon">' . $edit_icon  . $detail_icon . $export_qr . $delete_icon . '</div>';
+                })
+                ->addColumn('qrcode', function ($each) {
+                    return '<img src="data:image/png;base64,' . $each->qrcode . '" class="img-thumbnail" width="100" height="100"/>';
+                })
+                ->rawColumns(['image', 'action', 'qrcode'])
+                ->make(true);
         }
         return view('backend.products.index');
     }
@@ -68,7 +75,7 @@ class ProductController extends Controller
         $imageName = basename($imagePath);
 
         $product = Product::create([
-            'product_id' => rand('10000000','99999999'),
+            'product_id' => rand('10000000', '99999999'),
             'brand_name' => $request['brand_name'],
             'mass' => $request['mass'],
             'density' => $request['density'],
@@ -79,8 +86,9 @@ class ProductController extends Controller
             'text_conclusion' => $request['text_conclusion'],
             'image' => $imageName,
         ]);
-
-        return redirect('/products')->with('create','Product Created Successfully');
+        $product->qrcode = base64_encode(QrCode::format('png')->size(250)->generate(route('products.show', $product->id)));
+        $product->save();
+        return redirect('/products')->with('create', 'Product Created Successfully');
     }
 
     /**
@@ -91,7 +99,8 @@ class ProductController extends Controller
      */
     public function show($id)
     {
-        
+        $product = Product::find($id);
+        return view('backend.products.show', compact('product'));
     }
 
     /**
@@ -103,8 +112,7 @@ class ProductController extends Controller
     public function edit($id)
     {
         $product = Product::findOrFail($id);
-        dd($product);
-        return view('backend.products.edit',compact('product'));
+        return view('backend.products.edit', compact('product'));
     }
 
     /**
@@ -134,10 +142,10 @@ class ProductController extends Controller
         $product->measurement = $request->measurement;
         $product->cut_shape = $request->cut_shape;
         $product->color = $request->color;
-        $product->text_conclusion = $request->text_conclusion; 
-        if($request->file('image')){
-            if($product->image){
-                Storage::delete('public/products/'.$product->image);
+        $product->text_conclusion = $request->text_conclusion;
+        if ($request->file('image')) {
+            if ($product->image) {
+                Storage::delete('public/products/' . $product->image);
             }
             $imagePath = $request->file('image')->store('public/products/');
             $imageName = basename($imagePath);
@@ -145,7 +153,7 @@ class ProductController extends Controller
             $product->image = $imageName;
         }
         $product->save();
-        return redirect('/products')->with('update','Product Updated Successfully');
+        return redirect('/products')->with('update', 'Product Updated Successfully');
     }
 
     /**
@@ -157,11 +165,42 @@ class ProductController extends Controller
     public function destroy($id)
     {
         $product = Product::findOrFail($id);
-        if($product->image)
-        {
+        if ($product->image) {
             Storage::delete('public/products/' . $product->image);
         }
         $product->delete();
         return 'success';
+    }
+    public function exportImage($id)
+    {
+        $product = Product::findOrFail($id);
+
+        $info = [
+            'qr' => $product->qrcode,
+            'name' => $product->brand_name,
+            'mass' => $product->mass,
+            'density' => $product->density,
+            'refractive_index' => $product->refractive_index,
+            'cut_shape' => $product->cut_shape,
+            'measurement' => $product->measurement,
+            'color' => $product->color,
+            'text_conclusion' => $product->text_conclusion,
+            'image' => asset('storage/products/' . $product->image),
+        ];
+
+        $image = View::make('backend.products.qr', $info)->render();
+
+        $imageDirectory = public_path('qrimages');
+        $imagePath = $imageDirectory . '/product_QR.jpg';
+
+
+
+        if (!file_exists($imageDirectory)) {
+            mkdir($imageDirectory, 0755, true);
+        }
+
+
+        Browsershot::html($image)->setIncludePath('$PATH:/usr/local/bin/')->timeout(60000)->save($imagePath);
+        return response()->download($imagePath, 'product_QR.png');
     }
 }

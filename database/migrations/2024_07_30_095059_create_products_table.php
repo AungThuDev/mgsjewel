@@ -17,14 +17,15 @@ class CreateProductsTable extends Migration
             $table->id();
             $table->bigInteger('product_id');
             $table->string('brand_name');
-            $table->float('mass',8, 2);
-            $table->float('density',8,2);
-            $table->float('refractive_index',8,2);
+            $table->float('mass', 8, 2);
+            $table->float('density', 8, 2);
+            $table->float('refractive_index', 8, 2);
             $table->string('measurement');
             $table->string('cut_shape');
             $table->string('color');
             $table->string('text_conclusion');
             $table->string('qr_image')->nullable();
+            $table->longText('qrcode')->nullable();
             $table->string('image');
             $table->timestamps();
         });
